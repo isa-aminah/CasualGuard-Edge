@@ -1,0 +1,16 @@
+dataset_split,class_name,detection_records
+Testing,Bus,2443
+Testing,Car,12077
+Testing,Motorcycle,5762
+Testing,Person,14537
+Testing,Truck,3750
+Training,Bus,9786
+Training,Car,80453
+Training,Motorcycle,32112
+Training,Person,89332
+Training,Truck,26405
+Validation,Bus,1233
+Validation,Car,15227
+Validation,Motorcycle,7681
+Validation,Person,13890
+Validation,Truck,6089

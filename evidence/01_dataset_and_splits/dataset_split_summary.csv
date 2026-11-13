@@ -1,0 +1,4 @@
+split,videos,detection_records,unique_tracks_video_level
+Training,78,238088,7831
+Validation,16,44120,1513
+Testing,18,38569,1260
