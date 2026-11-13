@@ -1,0 +1,5 @@
+weighted_track_class,AMBIGUOUS,NOT_VISIBLE,OCCUPANT,PEDESTRIAN,VEHICLE,All
+pedestrian,1,0,1,18,0,20
+uncertain,2,0,6,12,0,20
+vehicle,1,2,5,0,12,20
+All,4,2,12,30,12,60

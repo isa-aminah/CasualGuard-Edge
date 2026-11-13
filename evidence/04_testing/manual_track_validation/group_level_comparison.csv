@@ -1,0 +1,12 @@
+review_group,weighted_track_class,review_decision,count
+pedestrian,pedestrian,AMBIGUOUS,1
+pedestrian,pedestrian,OCCUPANT,1
+pedestrian,pedestrian,PEDESTRIAN,18
+uncertain_mixed,uncertain,OCCUPANT,6
+uncertain_mixed,uncertain,PEDESTRIAN,4
+uncertain_person_only,uncertain,AMBIGUOUS,2
+uncertain_person_only,uncertain,PEDESTRIAN,8
+vehicle,vehicle,AMBIGUOUS,1
+vehicle,vehicle,NOT_VISIBLE,2
+vehicle,vehicle,OCCUPANT,5
+vehicle,vehicle,VEHICLE,12
