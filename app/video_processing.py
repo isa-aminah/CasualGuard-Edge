@@ -20,7 +20,7 @@ PERSON_CLASS_ID = 0
 VEHICLE_CLASS_IDS = {2, 3, 5, 7}
 TRACKED_CLASS_IDS = [PERSON_CLASS_ID, *sorted(VEHICLE_CLASS_IDS)]
 _TRACKING_LOCK = threading.Lock()
-ANALYSIS_VERSION = 3
+ANALYSIS_VERSION = 4
 TTC_MAX_SECONDS = 3.0
 CPA_MAX_DISTANCE_PX = 80.0
 RISK_DISTANCE_SCALE_PX = 8.0
@@ -60,6 +60,88 @@ def _track_video(model, source: Path, confidence: float):
             conf=confidence,
             verbose=False,
         )
+
+CLASS_NAMES = {
+    0: "Person",
+    2: "Car",
+    3: "Motorcycle",
+    5: "Bus",
+    7: "Truck",
+}
+
+MIN_CLASS_OBSERVATIONS = 5
+MIN_CLASS_SHARE = 0.70
+
+
+def _classify_track(observations: list[dict]) -> str:
+    """Return a conservative pedestrian/vehicle role from track observations.
+
+    Vehicle subtype changes (Car/Truck/Bus/Motorcycle) remain vehicle evidence.
+    Any Person + vehicle mixture is treated as uncertain rather than allowing
+    one noisy frame to contaminate a pedestrian or vehicle trajectory.
+    """
+    valid = [
+        item for item in observations
+        if item.get("class_id") in CLASS_NAMES
+    ]
+    if len(valid) < MIN_CLASS_OBSERVATIONS:
+        return "uncertain"
+
+    scores: dict[int, float] = {}
+    for item in valid:
+        class_id = int(item["class_id"])
+        try:
+            confidence = float(item.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        if not math.isfinite(confidence):
+            confidence = 0.0
+        scores[class_id] = scores.get(class_id, 0.0) + max(0.0, confidence)
+
+    total = sum(scores.values())
+    if total <= 0:
+        return "uncertain"
+
+    person_score = scores.get(PERSON_CLASS_ID, 0.0)
+    vehicle_score = sum(
+        score for class_id, score in scores.items()
+        if class_id in VEHICLE_CLASS_IDS
+    )
+
+    # A track that alternates between Person and any vehicle class is
+    # ambiguous. Do not infer that it is a pedestrian or a vehicle.
+    if person_score > 0 and vehicle_score > 0:
+        return "uncertain"
+
+    if person_score / total >= MIN_CLASS_SHARE:
+        return "pedestrian"
+
+    if vehicle_score / total >= MIN_CLASS_SHARE:
+        return "vehicle"
+
+    return "uncertain"
+
+
+
+def _finalize_track_classifications(
+    tracked_objects: dict[int, dict],
+) -> tuple[set[int], set[int]]:
+    """Assign each track a final role after collecting all observations."""
+
+    person_tracks = set()
+    vehicle_tracks = set()
+
+    for track_id, data in tracked_objects.items():
+        kind = _classify_track(data.get("observations", []))
+        data["kind"] = kind
+
+        if kind == "pedestrian":
+            person_tracks.add(track_id)
+        elif kind == "vehicle":
+            vehicle_tracks.add(track_id)
+
+    return person_tracks, vehicle_tracks
+
 
 
 def _velocity_at(
@@ -338,11 +420,24 @@ def analyze_video(
             boxes = result.boxes
             if boxes is not None and len(boxes):
                 class_ids = boxes.cls.int().cpu().tolist()
-                track_ids = boxes.id.int().cpu().tolist() if boxes.id is not None else [None] * len(class_ids)
+                track_ids = (
+                    boxes.id.int().cpu().tolist()
+                    if boxes.id is not None
+                    else [None] * len(class_ids)
+                )
                 coordinates = boxes.xyxy.cpu().tolist()
-                for class_id, track_id, box in zip(class_ids, track_ids, coordinates):
+                confidences = boxes.conf.cpu().tolist()
+
+                for class_id, track_id, box, confidence_value in zip(
+                    class_ids, track_ids, coordinates, confidences
+                ):
                     if track_id is None:
                         continue
+
+                    class_id = int(class_id)
+                    if class_id not in TRACKED_CLASS_IDS:
+                        continue
+
                     x1, y1, x2, y2 = (float(value) for value in box)
                     observation = {
                         "frame": frames_processed - 1,
@@ -350,19 +445,20 @@ def analyze_video(
                         "x": (x1 + x2) / 2,
                         "y": (y1 + y2) / 2,
                         "box": [x1, y1, x2, y2],
+                        "class_id": class_id,
+                        "confidence": float(confidence_value),
                     }
+
+                    # These counters preserve raw per-frame detector counts.
                     if class_id == PERSON_CLASS_ID:
                         pedestrian_detections += 1
-                        person_tracks.add(track_id)
-                        tracked_objects.setdefault(track_id, {"kind": "pedestrian", "observations": []})[
-                            "observations"
-                        ].append(observation)
                     elif class_id in VEHICLE_CLASS_IDS:
                         vehicle_detections += 1
-                        vehicle_tracks.add(track_id)
-                        tracked_objects.setdefault(track_id, {"kind": "vehicle", "observations": []})[
-                            "observations"
-                        ].append(observation)
+
+                    tracked_objects.setdefault(
+                        int(track_id),
+                        {"kind": "uncertain", "observations": []},
+                    )["observations"].append(observation)
 
             if progress_callback and (
                 frames_processed % update_interval == 0
@@ -388,6 +484,9 @@ def analyze_video(
         _encode_browser_mp4(temporary_path, encoded_path, source_audio=source)
         os.replace(encoded_path, output_path)
         temporary_path.unlink()
+        person_tracks, vehicle_tracks = _finalize_track_classifications(
+            tracked_objects
+        )
         events = _build_interaction_events(
             tracked_objects,
             video_id=video_id,
