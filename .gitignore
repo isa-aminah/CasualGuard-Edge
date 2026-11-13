@@ -3,3 +3,27 @@ __pycache__/
 .streamlit/secrets.toml
 data/
 *.pt
+
+# CAUSALGUARD generated datasets and experiments
+training/tracking_batch/
+training/v4_trajectory_test/
+training/dataset/
+training/models/
+training/results/
+
+# Raw video datasets
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Python environments and caches
+.venv/
+.venv-train/
+__pycache__/
+*.pyc
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
